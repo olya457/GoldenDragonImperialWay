@@ -1,4 +1,3 @@
-// GameScreen.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
@@ -11,6 +10,7 @@ import {
   Animated,
   Easing,
   Share,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,7 +45,6 @@ const REWARD_7 = require('../assets/reward_7.png');
 const KEY_CHARACTER = 'selected_character_v1';
 const KEY_REWARDS = 'rewards_unlocked_v1';
 
-// ✅ game state is NOT persisted anymore (so on re-enter it opens the first page)
 type Step = 'intro' | 'playing' | 'win' | 'reward' | 'lose';
 
 type GameState = {
@@ -57,8 +56,8 @@ type GameState = {
   rewardIndex: number | null;
 };
 
-const ROWS = 3; // ✅ 3 down
-const COLS = 5; // ✅ 5 across
+const ROWS = 3;
+const COLS = 5;
 const TILES_TOTAL = ROWS * COLS;
 
 const ATTEMPTS_TOTAL = 3;
@@ -100,31 +99,26 @@ export default function GameScreen({ navigation }: Props) {
   const topPad = insets.top;
   const bottomPad = insets.bottom;
 
-  // Keep everything above the tab bar
-  const safeBottom = bottomPad + tabBarH + 10;
+  const s = isTinyH ? 0.9 : isSmallH ? 0.95 : 1;
+  const overlayH = Math.max(tabBarH, isTinyH ? 78 : isSmallH ? 84 : 92);
+  const bottomGuard = bottomPad + overlayH + (isTinyH ? 6 : isSmallH ? 8 : 12);
 
-  // Lift content a bit
-  const stageOffsetY = -20;
+  const stageOffsetY = isTinyH ? -14 : isSmallH ? -18 : -20;
 
   const cardW = Math.min(430, width - 26);
 
-  const headerH = isTinyH ? 78 : isSmallH ? 88 : 94;
-  const gap = isTinyH ? 10 : isSmallH ? 12 : 14;
+  const headerH = isTinyH ? 74 : isSmallH ? 84 : 94;
+  const gap = isTinyH ? 8 : isSmallH ? 10 : 14;
 
-  // ✅ Intro dragon slightly smaller than before
-  const introDragonH = isTinyH ? 160 : isSmallH ? 180 : 200;
+  const introDragonH = Math.round((isTinyH ? 132 : isSmallH ? 152 : 185) * s);
+  const playDragonH = Math.round((isTinyH ? 142 : isSmallH ? 162 : 195) * s);
 
-  // Playing dragon image height
-  const playDragonH = isTinyH ? 170 : isSmallH ? 190 : 210;
-
-  // Grid sizing
   const gridW = Math.min(cardW, width - 34);
-  const gridGap = isTinyH ? 8 : 10;
+  const gridGap = isTinyH ? 7 : isSmallH ? 8 : 10;
 
-  // Smaller tiles
   const tileSize = useMemo(() => {
     const raw = Math.floor((gridW - gridGap * (COLS - 1)) / COLS);
-    const hard = isTinyH ? 52 : isSmallH ? 56 : 60;
+    const hard = isTinyH ? 46 : isSmallH ? 50 : 58;
     return Math.min(raw, hard);
   }, [gridW, gridGap, isTinyH, isSmallH]);
 
@@ -140,7 +134,6 @@ export default function GameScreen({ navigation }: Props) {
 
   const [dateStr] = useState(() => dateStrNow());
 
-  // Anim
   const anim = useRef(new Animated.Value(0)).current;
   const animateIn = useCallback(() => {
     anim.setValue(0);
@@ -182,7 +175,6 @@ export default function GameScreen({ navigation }: Props) {
     } catch {}
   }, []);
 
-  // ✅ On every screen focus: show FIRST page (intro), not the last step
   useFocusEffect(
     useCallback(() => {
       loadCharacter();
@@ -289,7 +281,15 @@ export default function GameScreen({ navigation }: Props) {
       attemptsLeft,
       selectedIndex: null,
     }));
-  }, [state.step, state.selectedIndex, state.opened, state.crownIndex, state.attemptsLeft, unlocked, persistUnlocked]);
+  }, [
+    state.step,
+    state.selectedIndex,
+    state.opened,
+    state.crownIndex,
+    state.attemptsLeft,
+    unlocked,
+    persistUnlocked,
+  ]);
 
   const goToReward = useCallback(() => {
     if (state.step !== 'win') return;
@@ -303,7 +303,8 @@ export default function GameScreen({ navigation }: Props) {
   const shareResult = useCallback(async () => {
     try {
       let msg = 'Golden Dragon Imperial Way';
-      if (state.step === 'reward' && state.rewardIndex !== null) msg = `I unlocked a new reward image (#${state.rewardIndex + 1}).`;
+      if (state.step === 'reward' && state.rewardIndex !== null)
+        msg = `I unlocked a new reward image (#${state.rewardIndex + 1}).`;
       if (state.step === 'win') msg = 'I found the crown!';
       if (state.step === 'lose') msg = 'Game over. I will try again!';
       await Share.share({ message: msg });
@@ -318,19 +319,22 @@ export default function GameScreen({ navigation }: Props) {
 
   const canOpen = state.step === 'playing' && state.selectedIndex !== null;
 
-  // ✅ Reward image container is HALF size
   const rewardBoxSize = useMemo(() => {
     const base = Math.min(cardW, width - 26);
     const half = Math.floor(base * 0.5);
-    const hard = isTinyH ? 170 : isSmallH ? 185 : 200;
+    const hard = isTinyH ? 160 : isSmallH ? 178 : 200;
     return Math.min(half, hard);
   }, [cardW, width, isTinyH, isSmallH]);
+
+  const btnH = Math.round((isTinyH ? 50 : isSmallH ? 52 : 54) * s);
+  const openBtnH = Math.round((isTinyH ? 48 : isSmallH ? 50 : 52) * s);
+
+  const androidDown = Platform.OS === 'android' ? 20 : 0;
 
   return (
     <ImageBackground source={BG} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={{ flex: 1, paddingTop: topPad }}>
-        <View style={[styles.stage, { marginTop: stageOffsetY }]}>
-          {/* Header */}
+        <View style={[styles.stage, { marginTop: stageOffsetY + androidDown }]}>
           <View style={[styles.headerCard, { width: cardW, height: headerH, marginBottom: gap }]}>
             <View style={styles.headerLeft}>
               <View style={[styles.headerThumbWrap, isTinyH && { width: 52, height: 52 }]}>
@@ -338,7 +342,7 @@ export default function GameScreen({ navigation }: Props) {
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={[styles.headerTitle, { fontSize: isTinyH ? 15 : 16 }]}>{headerTitle}</Text>
+                <Text style={[styles.headerTitle, { fontSize: isTinyH ? 14.5 : 16 }]}>{headerTitle}</Text>
                 <Text style={[styles.headerDate, { fontSize: isTinyH ? 11 : 12 }]}>{dateStr}</Text>
               </View>
             </View>
@@ -353,20 +357,31 @@ export default function GameScreen({ navigation }: Props) {
                 flex: 1,
                 opacity: fade,
                 transform: [{ translateY: y }, { scale }],
-                paddingBottom: safeBottom,
+                paddingBottom: bottomGuard,
               },
             ]}
           >
-            {/* INTRO */}
             {state.step === 'intro' ? (
               <View style={{ flex: 1 }}>
-                <View style={[styles.introCard, { marginBottom: gap }]}>
+                <View style={[styles.introCard, { marginBottom: gap, paddingVertical: isTinyH ? 10 : 12 }]}>
                   <View style={styles.introRow}>
-                    <View style={styles.avatarWrap}>
+                    <View
+                      style={[
+                        styles.avatarWrap,
+                        isTinyH && { width: 48, height: 48, borderRadius: 15, marginRight: 10 },
+                      ]}
+                    >
                       <Image source={chosenAvatar} style={styles.avatarImg} resizeMode="contain" />
                     </View>
 
-                    <Text style={[styles.introText, isTinyH && { fontSize: 12 }]} numberOfLines={3}>
+                    <Text
+                      style={[
+                        styles.introText,
+                        isTinyH && { fontSize: 12, lineHeight: 17 },
+                        isSmallH && !isTinyH && { fontSize: 12.5, lineHeight: 17.5 },
+                      ]}
+                      numberOfLines={3}
+                    >
                       Find my crown and unlock a reward image. Ready?
                     </Text>
                   </View>
@@ -378,29 +393,31 @@ export default function GameScreen({ navigation }: Props) {
 
                 <Pressable
                   onPress={startNewGame}
-                  style={({ pressed }) => [styles.bigGoldBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [
+                    styles.bigGoldBtn,
+                    { height: btnH },
+                    pressed && { transform: [{ scale: 0.99 }] },
+                  ]}
                 >
-                  <Text style={styles.bigGoldText}>Start</Text>
+                  <Text style={[styles.bigGoldText, isTinyH && { fontSize: 17 }]}>Start</Text>
                 </Pressable>
 
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginTop: isTinyH ? 8 : 10 }}>
                   <Text style={styles.collectionHint}>Collection: {unlocked.filter(Boolean).length}/7 unlocked</Text>
                 </View>
               </View>
             ) : null}
 
-            {/* PLAYING */}
             {state.step === 'playing' ? (
               <View style={{ flex: 1 }}>
                 <View style={[styles.dragonCard, { height: playDragonH, marginBottom: gap }]}>
                   <Image source={IMG_DRAGON} style={styles.dragonImg} resizeMode="cover" />
                 </View>
 
-                <View style={[styles.attemptPill, { alignSelf: 'center', marginBottom: gap - 2 }]}>
-                  <Text style={styles.attemptText}>{attemptText}</Text>
+                <View style={[styles.attemptPill, { alignSelf: 'center', marginBottom: Math.max(6, gap - 4) }]}>
+                  <Text style={[styles.attemptText, isTinyH && { fontSize: 11 }]}>{attemptText}</Text>
                 </View>
 
-                {/* 3x5 grid */}
                 <View style={{ width: gridBlockW, alignSelf: 'center' }}>
                   {Array.from({ length: ROWS }).map((_, r) => (
                     <View key={`r_${r}`} style={[styles.gridRow, { marginBottom: r === ROWS - 1 ? 0 : gridGap }]}>
@@ -419,18 +436,29 @@ export default function GameScreen({ navigation }: Props) {
                                 width: tileSize,
                                 height: tileSize,
                                 marginRight: c === COLS - 1 ? 0 : gridGap,
+                                borderRadius: isTinyH ? 11 : 12,
                               },
                               isSelected && styles.tileSelected,
                               pressed && !isOpened && { transform: [{ scale: 0.99 }] },
                             ]}
                           >
-                            <View style={styles.tileInner}>
+                            <View style={[styles.tileInner, { padding: isTinyH ? 5 : 6 }]}>
                               {!isOpened ? (
-                                <Image source={IMG_CROWN_TILE} style={styles.tileCrownImg} resizeMode="contain" />
+                                <Image
+                                  source={IMG_CROWN_TILE}
+                                  style={[styles.tileCrownImg, isTinyH && { width: 18, height: 18 }]}
+                                  resizeMode="contain"
+                                />
                               ) : idx === state.crownIndex ? (
-                                <Image source={IMG_CROWN_TILE} style={styles.tileCrownImgBig} resizeMode="contain" />
+                                <Image
+                                  source={IMG_CROWN_TILE}
+                                  style={[styles.tileCrownImgBig, isTinyH && { width: 24, height: 24 }]}
+                                  resizeMode="contain"
+                                />
                               ) : (
-                                <Text style={styles.emptyText}>It&apos;s empty{'\n'}here.</Text>
+                                <Text style={[styles.emptyText, isTinyH && { fontSize: 9, lineHeight: 13 }]}>
+                                  It&apos;s empty{'\n'}here.
+                                </Text>
                               )}
                             </View>
                           </Pressable>
@@ -440,8 +468,7 @@ export default function GameScreen({ navigation }: Props) {
                   ))}
                 </View>
 
-                {/* bottom controls */}
-                <View style={[styles.bottomBar, { width: cardW, marginTop: gap }]}>
+                <View style={[styles.bottomBar, { width: cardW, marginTop: gap, marginBottom: isTinyH ? 6 : 8 }]}>
                   <Pressable
                     onPress={backToIntro}
                     style={({ pressed }) => [styles.backRound, pressed && { transform: [{ scale: 0.98 }] }]}
@@ -454,34 +481,44 @@ export default function GameScreen({ navigation }: Props) {
                     onPress={openSelected}
                     style={({ pressed }) => [
                       styles.openBtn,
+                      { height: openBtnH },
                       !canOpen && { opacity: 0.55 },
                       pressed && canOpen && { transform: [{ scale: 0.99 }] },
                     ]}
                   >
-                    <Text style={styles.openBtnText}>Open</Text>
+                    <Text style={[styles.openBtnText, isTinyH && { fontSize: 17 }]}>Open</Text>
                   </Pressable>
                 </View>
 
-                <View style={{ marginTop: 10 }}>
+                <View style={{ marginTop: isTinyH ? 8 : 10 }}>
                   <Text style={styles.collectionHint}>Collection: {unlocked.filter(Boolean).length}/7 unlocked</Text>
                 </View>
               </View>
             ) : null}
 
-            {/* WIN */}
             {state.step === 'win' ? (
               <View style={{ flex: 1 }}>
-                <View style={[styles.resultCard, { height: isTinyH ? 260 : isSmallH ? 300 : 330, marginBottom: gap }]}>
+                <View
+                  style={[
+                    styles.resultCard,
+                    { height: Math.round((isTinyH ? 235 : isSmallH ? 270 : 310) * s), marginBottom: gap },
+                  ]}
+                >
                   <Image source={IMG_CROWN_RESULT} style={styles.resultImg} resizeMode="contain" />
                 </View>
 
-                <View style={[styles.dialogCard, { marginBottom: gap }]}>
+                <View style={[styles.dialogCard, { marginBottom: gap, paddingVertical: isTinyH ? 10 : 12 }]}>
                   <View style={styles.dialogRow}>
-                    <View style={styles.dialogAvatarWrap}>
+                    <View
+                      style={[
+                        styles.dialogAvatarWrap,
+                        isTinyH && { width: 48, height: 48, borderRadius: 15, marginRight: 10 },
+                      ]}
+                    >
                       <Image source={chosenAvatar} style={styles.dialogAvatarImg} resizeMode="contain" />
                     </View>
 
-                    <Text style={[styles.dialogText, isTinyH && { fontSize: 12 }]} numberOfLines={3}>
+                    <Text style={[styles.dialogText, isTinyH && { fontSize: 12, lineHeight: 17 }]} numberOfLines={3}>
                       You found my crown! Here is your reward.
                     </Text>
                   </View>
@@ -489,14 +526,17 @@ export default function GameScreen({ navigation }: Props) {
 
                 <Pressable
                   onPress={goToReward}
-                  style={({ pressed }) => [styles.bigGoldBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [
+                    styles.bigGoldBtn,
+                    { height: btnH },
+                    pressed && { transform: [{ scale: 0.99 }] },
+                  ]}
                 >
-                  <Text style={styles.bigGoldText}>Next</Text>
+                  <Text style={[styles.bigGoldText, isTinyH && { fontSize: 17 }]}>Next</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {/* REWARD (image is half size) */}
             {state.step === 'reward' ? (
               <View style={{ flex: 1 }}>
                 <View style={[styles.rewardWrap, { marginBottom: gap }]}>
@@ -509,13 +549,18 @@ export default function GameScreen({ navigation }: Props) {
                   </View>
                 </View>
 
-                <View style={[styles.dialogCard, { marginBottom: gap }]}>
+                <View style={[styles.dialogCard, { marginBottom: gap, paddingVertical: isTinyH ? 10 : 12 }]}>
                   <View style={styles.dialogRow}>
-                    <View style={styles.dialogAvatarWrap}>
+                    <View
+                      style={[
+                        styles.dialogAvatarWrap,
+                        isTinyH && { width: 48, height: 48, borderRadius: 15, marginRight: 10 },
+                      ]}
+                    >
                       <Image source={chosenAvatar} style={styles.dialogAvatarImg} resizeMode="contain" />
                     </View>
 
-                    <Text style={[styles.dialogText, isTinyH && { fontSize: 12 }]} numberOfLines={2}>
+                    <Text style={[styles.dialogText, isTinyH && { fontSize: 12, lineHeight: 17 }]} numberOfLines={2}>
                       This reward image is now in your collection.
                     </Text>
                   </View>
@@ -531,25 +576,32 @@ export default function GameScreen({ navigation }: Props) {
 
                   <Pressable
                     onPress={shareResult}
-                    style={({ pressed }) => [styles.bigGoldBtn, { flex: 1 }, pressed && { transform: [{ scale: 0.99 }] }]}
+                    style={({ pressed }) => [
+                      styles.bigGoldBtn,
+                      { flex: 1, height: btnH },
+                      pressed && { transform: [{ scale: 0.99 }] },
+                    ]}
                   >
                     <Image source={IC_SHARE} style={styles.shareIcon} resizeMode="contain" />
-                    <Text style={styles.bigGoldText}>Share</Text>
+                    <Text style={[styles.bigGoldText, isTinyH && { fontSize: 17 }]}>Share</Text>
                   </Pressable>
                 </View>
 
-                <View style={{ height: 12 }} />
+                <View style={{ height: isTinyH ? 10 : 12 }} />
 
                 <Pressable
                   onPress={tryAgain}
-                  style={({ pressed }) => [styles.tryAgainBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [
+                    styles.tryAgainBtn,
+                    { height: openBtnH },
+                    pressed && { transform: [{ scale: 0.99 }] },
+                  ]}
                 >
-                  <Text style={styles.tryAgainText}>Try again</Text>
+                  <Text style={[styles.tryAgainText, isTinyH && { fontSize: 17 }]}>Try again</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {/* LOSE */}
             {state.step === 'lose' ? (
               <View style={{ flex: 1 }}>
                 <View style={[styles.dragonCard, { height: playDragonH, marginBottom: gap }]}>
@@ -569,20 +621,28 @@ export default function GameScreen({ navigation }: Props) {
 
                   <Pressable
                     onPress={shareResult}
-                    style={({ pressed }) => [styles.bigGoldBtn, { flex: 1 }, pressed && { transform: [{ scale: 0.99 }] }]}
+                    style={({ pressed }) => [
+                      styles.bigGoldBtn,
+                      { flex: 1, height: btnH },
+                      pressed && { transform: [{ scale: 0.99 }] },
+                    ]}
                   >
                     <Image source={IC_SHARE} style={styles.shareIcon} resizeMode="contain" />
-                    <Text style={styles.bigGoldText}>Share</Text>
+                    <Text style={[styles.bigGoldText, isTinyH && { fontSize: 17 }]}>Share</Text>
                   </Pressable>
                 </View>
 
-                <View style={{ height: 12 }} />
+                <View style={{ height: isTinyH ? 10 : 12 }} />
 
                 <Pressable
                   onPress={tryAgain}
-                  style={({ pressed }) => [styles.tryAgainBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+                  style={({ pressed }) => [
+                    styles.tryAgainBtn,
+                    { height: openBtnH },
+                    pressed && { transform: [{ scale: 0.99 }] },
+                  ]}
                 >
-                  <Text style={styles.tryAgainText}>Try again</Text>
+                  <Text style={[styles.tryAgainText, isTinyH && { fontSize: 17 }]}>Try again</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -741,7 +801,6 @@ const styles = StyleSheet.create({
   },
   resultImg: { width: '100%', height: '100%' },
 
-  // ✅ reward image smaller (half)
   rewardWrap: { alignItems: 'center', justifyContent: 'center' },
   rewardBox: {
     borderRadius: 18,

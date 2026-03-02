@@ -1,4 +1,4 @@
-package com.goldendragonimperialway
+package com.golden.dragon.imperial.way
 
 import android.app.Application
 import com.facebook.react.PackageList

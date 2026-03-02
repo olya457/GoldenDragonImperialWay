@@ -1,4 +1,4 @@
-package com.goldendragonimperialway
+package com.golden.dragon.imperial.way
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

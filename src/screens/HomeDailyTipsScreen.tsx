@@ -10,6 +10,7 @@ import {
   Animated,
   Easing,
   Share,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,11 +43,13 @@ type Tab = 'tips' | 'task';
 function pad2(n: number) {
   return n < 10 ? `0${n}` : `${n}`;
 }
+
 function formatMMSS(totalSeconds: number) {
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${pad2(m)}:${pad2(s)}`;
 }
+
 function pickRandomIndex(len: number) {
   if (len <= 1) return 0;
   return Math.floor(Math.random() * len);
@@ -77,24 +80,26 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
   const topPad = insets.top;
   const bottomPad = insets.bottom;
 
-  const gap = isTinyH ? 10 : isSmallH ? 12 : 14;
+  const gap = isTinyH ? 8 : isSmallH ? 10 : 14;
 
-  const headerH = isTinyH ? 78 : isSmallH ? 88 : 94;
-  const guideH = isTinyH ? 78 : isSmallH ? 86 : 92;
-  const tabsH = isTinyH ? 40 : 42;
+  const headerH = isTinyH ? 70 : isSmallH ? 80 : 94;
+  const guideH = isTinyH ? 68 : isSmallH ? 76 : 92;
+  const tabsH = isTinyH ? 38 : isSmallH ? 40 : 42;
 
-  const stageH = height - topPad - bottomPad;
+  const TAB_BAR_RESERVE_BASE = isTinyH ? 118 : isSmallH ? 114 : 102;
+  const TAB_BAR_RESERVE = TAB_BAR_RESERVE_BASE + (Platform.OS === 'android' ? 22 : 0);
+
+  const stageH = height - topPad - bottomPad - TAB_BAR_RESERVE;
 
   const availableForMain = stageH - headerH - guideH - tabsH - gap * 5;
-  const baseMainBoxH = Math.max(
-    isTinyH ? 320 : 350,
-    Math.min(availableForMain, isTinyH ? 380 : isSmallH ? 410 : 430)
+
+  const mainBoxH = Math.max(
+    isTinyH ? 248 : isSmallH ? 272 : 310,
+    Math.min(availableForMain, isTinyH ? 300 : isSmallH ? 336 : 410) - (isSmallH ? 14 : 10)
   );
 
-  const mainBoxH = Math.max(isTinyH ? 300 : 330, baseMainBoxH - 20);
-
-  const mainPad = isTinyH ? 12 : 14;
-  const gridGap = isTinyH ? 10 : 12;
+  const mainPad = isTinyH ? 10 : isSmallH ? 12 : 14;
+  const gridGap = isTinyH ? 8 : isSmallH ? 10 : 12;
 
   const tileW = (cardW - mainPad * 2 - gridGap) / 2;
   const tileH = (mainBoxH - mainPad * 2 - gridGap) / 2;
@@ -103,26 +108,6 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
 
   const [selectedCharacter, setSelectedCharacter] = useState<'empress' | 'emperor'>('empress');
   const chosenAvatar = selectedCharacter === 'empress' ? AV_LEFT : AV_RIGHT;
-
-  const loadCharacter = useCallback(async () => {
-    try {
-      const v = await AsyncStorage.getItem(KEY_CHARACTER);
-      if (v === 'empress' || v === 'emperor') setSelectedCharacter(v);
-      else setSelectedCharacter('empress');
-    } catch {
-      setSelectedCharacter('empress');
-    }
-  }, []);
-
-  useEffect(() => {
-    loadCharacter();
-  }, [loadCharacter]);
-
-  useFocusEffect(
-    useCallback(() => {
-      loadCharacter();
-    }, [loadCharacter])
-  );
 
   const dateStr = useMemo(() => {
     const d = new Date();
@@ -141,6 +126,39 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
 
   const [savedIDs, setSavedIDs] = useState<Set<string>>(new Set());
 
+  const [taskId, setTaskId] = useState(0);
+  const [taskPhase, setTaskPhase] = useState<'pick' | 'running' | 'finished'>('pick');
+  const [secondsLeft, setSecondsLeft] = useState(10 * 60);
+  const [running, setRunning] = useState(false);
+
+  const animateA = useRef(new Animated.Value(0)).current;
+
+  const tiles4 = useMemo(() => {
+    const arr = TIP_CATEGORIES.slice(0, 4);
+    while (arr.length < 4) {
+      arr.push({
+        id: (`__empty_${arr.length}` as unknown) as TipCategoryId,
+        title: '',
+        tips: [],
+        glyphImage: undefined as any,
+      });
+    }
+    return arr;
+  }, []);
+
+  const row1 = tiles4.slice(0, 2);
+  const row2 = tiles4.slice(2, 4);
+
+  const loadCharacter = useCallback(async () => {
+    try {
+      const v = await AsyncStorage.getItem(KEY_CHARACTER);
+      if (v === 'empress' || v === 'emperor') setSelectedCharacter(v);
+      else setSelectedCharacter('empress');
+    } catch {
+      setSelectedCharacter('empress');
+    }
+  }, []);
+
   const loadSaved = useCallback(async () => {
     try {
       const raw = await AsyncStorage.getItem(KEY_SAVED_TIPS);
@@ -152,13 +170,26 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
   }, []);
 
   useEffect(() => {
+    loadCharacter();
     loadSaved();
-  }, [loadSaved]);
+  }, [loadCharacter, loadSaved]);
 
   useFocusEffect(
     useCallback(() => {
+      loadCharacter();
       loadSaved();
-    }, [loadSaved])
+
+      setTab('tips');
+      setTipCat(null);
+      setTipIndex(0);
+
+      setTaskId(0);
+      setTaskPhase('pick');
+      setRunning(false);
+      setSecondsLeft(10 * 60);
+
+      return undefined;
+    }, [loadCharacter, loadSaved])
   );
 
   const currentTipId = useMemo(() => {
@@ -168,26 +199,35 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
 
   const isSaved = currentTipId ? savedIDs.has(currentTipId) : false;
 
-  const animateA = useRef(new Animated.Value(0)).current;
-
   useEffect(() => {
     animateA.setValue(0);
     Animated.timing(animateA, {
       toValue: 1,
-      duration: 260,
+      duration: 240,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-  }, [tab, tipCat, tipIndex, animateA]);
+  }, [tab, tipCat, tipIndex, taskPhase, taskId, animateA]);
 
-  const onShareTip = async () => {
+  const guideText =
+    tab === 'tips'
+      ? tipCat === null
+        ? 'Choose who you are today to get tips.'
+        : 'Here is your daily tip.'
+      : taskPhase === 'pick'
+      ? 'Choose the task that interests you the most.'
+      : taskPhase === 'running'
+      ? 'Complete the task to improve your routine.'
+      : 'Did you complete the task? Be honest.';
+
+  const onShareTip = useCallback(async () => {
     if (!activeCategory) return;
     try {
       await Share.share({ message: `${activeCategory.title}: ${tipText}` });
     } catch {}
-  };
+  }, [activeCategory, tipText]);
 
-  const saveOrUnsaveTip = async () => {
+  const saveOrUnsaveTip = useCallback(async () => {
     if (!activeCategory) return;
     try {
       const raw = await AsyncStorage.getItem(KEY_SAVED_TIPS);
@@ -214,29 +254,24 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
       await AsyncStorage.setItem(KEY_SAVED_TIPS, JSON.stringify(next));
       setSavedIDs(new Set(next.map((x) => x.id)));
     } catch {}
-  };
+  }, [activeCategory, currentTipId, tipText]);
 
-  const randomizeTip = () => {
+  const randomizeTip = useCallback(() => {
     if (!activeCategory) return;
     setTipIndex(pickRandomIndex(activeCategory.tips.length));
-  };
+  }, [activeCategory]);
 
-  const prevTip = () => {
+  const prevTip = useCallback(() => {
     if (!activeCategory) return;
     const len = activeCategory.tips.length;
     setTipIndex((p) => (p - 1 + len) % len);
-  };
+  }, [activeCategory]);
 
-  const nextTip = () => {
+  const nextTip = useCallback(() => {
     if (!activeCategory) return;
     const len = activeCategory.tips.length;
     setTipIndex((p) => (p + 1) % len);
-  };
-
-  const [taskId, setTaskId] = useState(0);
-  const [taskPhase, setTaskPhase] = useState<'pick' | 'running' | 'finished'>('pick');
-  const [secondsLeft, setSecondsLeft] = useState(10 * 60);
-  const [running, setRunning] = useState(false);
+  }, [activeCategory]);
 
   useEffect(() => {
     if (taskPhase !== 'running' || !running) return;
@@ -253,59 +288,37 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
     }
   }, [secondsLeft, taskPhase]);
 
-  const startTask = () => {
+  const startTask = useCallback(() => {
     setSecondsLeft(10 * 60);
     setTaskPhase('running');
     setRunning(true);
-  };
+  }, []);
 
-  const toggleRun = () => setRunning((p) => !p);
+  const toggleRun = useCallback(() => setRunning((p) => !p), []);
 
-  const backToPick = () => {
+  const backToPick = useCallback(() => {
     setRunning(false);
     setTaskPhase('pick');
     setSecondsLeft(10 * 60);
-  };
+  }, []);
 
-  const refreshTask = () => {
+  const refreshTask = useCallback(() => {
     setTaskId((p) => (p + 1) % DAILY_TASKS.length);
-  };
-
-  const guideText =
-    tab === 'tips'
-      ? tipCat === null
-        ? 'Choose who you are today to get tips.'
-        : 'Here is your daily tip.'
-      : taskPhase === 'pick'
-      ? 'Choose the task that interests you the most.'
-      : taskPhase === 'running'
-      ? 'Complete the task to improve your routine.'
-      : 'Did you complete the task? Be honest.';
+  }, []);
 
   const contentOpacity = animateA;
   const contentScale = animateA.interpolate({ inputRange: [0, 1], outputRange: [0.992, 1] });
   const contentY = animateA.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
 
-  const tiles4 = useMemo(() => {
-    const arr = TIP_CATEGORIES.slice(0, 4);
-    while (arr.length < 4) {
-      arr.push({
-        id: (`__empty_${arr.length}` as unknown) as TipCategoryId,
-        title: '',
-        tips: [],
-        glyphImage: undefined as any,
-      });
-    }
-    return arr;
-  }, []);
-
-  const row1 = tiles4.slice(0, 2);
-  const row2 = tiles4.slice(2, 4);
-
   const renderTile = (c: any, idx: number) => {
     const isEmpty = String(c.id).startsWith('__empty_');
     if (isEmpty) {
-      return <View key={`empty_${idx}`} style={[styles.tipTile, { width: tileW, height: tileH, opacity: 0 }]} />;
+      return (
+        <View
+          key={`empty_${idx}`}
+          style={[styles.tipTile, { width: tileW, height: tileH, opacity: 0 }]}
+        />
+      );
     }
 
     return (
@@ -321,37 +334,52 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
           pressed && { transform: [{ scale: 0.99 }] },
         ]}
       >
-        <View style={styles.tipTileInner}>
+        <View style={[styles.tipTileInner, isSmallH && { padding: 10 }]}>
           <View style={styles.glyphBox}>
             <Image source={c.glyphImage} style={styles.glyphImg} resizeMode="contain" />
           </View>
 
-          <View style={styles.tipTileFooter}>
+          <View style={[styles.tipTileFooter, isSmallH && { marginTop: 8 }]}>
             <Text style={[styles.tipTileLabel, isTinyH && { fontSize: 12 }]} numberOfLines={1}>
               {c.title}
             </Text>
-            <View style={styles.smallRing} />
+            <View style={[styles.smallRing, isSmallH && { width: 16, height: 16 }]} />
           </View>
         </View>
       </Pressable>
     );
   };
 
+  const androidDown = Platform.OS === 'android' ? 20 : 0;
+
   return (
     <ImageBackground source={BG} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={{ flex: 1, paddingTop: topPad, paddingBottom: bottomPad }}>
-        <View style={[styles.stage, { marginTop: -20 }]}>
+        <View style={[styles.stage, { marginTop: (isSmallH ? -10 : -20) + androidDown }]}>
           <View style={[styles.headerCard, { width: cardW, height: headerH, marginBottom: gap }]}>
             <View style={styles.headerLeft}>
-              <View style={[styles.headerThumbWrap, isTinyH && { width: 52, height: 52 }]}>
+              <View
+                style={[
+                  styles.headerThumbWrap,
+                  isTinyH && { width: 50, height: 50 },
+                  isSmallH && !isTinyH && { width: 54, height: 54 },
+                ]}
+              >
                 <Image source={HEADER_IMG} style={styles.headerThumb} resizeMode="cover" />
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={[styles.headerTitle, { fontSize: isTinyH ? 15 : 16 }]}>
+                <Text
+                  style={[
+                    styles.headerTitle,
+                    { fontSize: isTinyH ? 14 : isSmallH ? 15 : 16 },
+                  ]}
+                >
                   Welcome to Golden{'\n'}Dragon Imperial Way
                 </Text>
-                <Text style={[styles.headerDate, { fontSize: isTinyH ? 11 : 12 }]}>{dateStr}</Text>
+                <Text style={[styles.headerDate, { fontSize: isTinyH ? 10 : 12 }]}>
+                  {dateStr}
+                </Text>
               </View>
             </View>
 
@@ -363,16 +391,29 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
               <View
                 style={[
                   styles.guideAvatarWrap,
-                  isTinyH && { width: 48, height: 48 },
-                  isSmallH && !isTinyH && { width: 52, height: 52 },
+                  isTinyH && { width: 44, height: 44, marginRight: 10 },
+                  isSmallH && !isTinyH && { width: 48, height: 48, marginRight: 10 },
                 ]}
               >
                 <Image source={chosenAvatar} style={styles.guideAvatar} resizeMode="contain" />
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={[styles.guideTitle, isTinyH && { fontSize: 12 }]}>Your Guide</Text>
-                <Text style={[styles.guideText, isTinyH && { fontSize: 12 }]} numberOfLines={2}>
+                <Text
+                  style={[
+                    styles.guideTitle,
+                    { fontSize: isTinyH ? 12 : isSmallH ? 13 : 14 },
+                  ]}
+                >
+                  Your Guide
+                </Text>
+                <Text
+                  style={[
+                    styles.guideText,
+                    { fontSize: isTinyH ? 12 : isSmallH ? 12.5 : 13 },
+                  ]}
+                  numberOfLines={2}
+                >
                   {guideText}
                 </Text>
               </View>
@@ -392,7 +433,15 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                 pressed && { transform: [{ scale: 0.99 }] },
               ]}
             >
-              <Text style={[styles.tabText, tab === 'tips' && styles.tabTextActive]}>Daily tips</Text>
+              <Text
+                style={[
+                  styles.tabText,
+                  tab === 'tips' && styles.tabTextActive,
+                  isTinyH && { fontSize: 12 },
+                ]}
+              >
+                Daily tips
+              </Text>
             </Pressable>
 
             <Pressable
@@ -400,6 +449,7 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                 setTab('task');
                 setTipCat(null);
                 setTipIndex(0);
+                backToPick();
               }}
               style={({ pressed }) => [
                 styles.tabBtn,
@@ -407,7 +457,15 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                 pressed && { transform: [{ scale: 0.99 }] },
               ]}
             >
-              <Text style={[styles.tabText, tab === 'task' && styles.tabTextActive]}>Daily task</Text>
+              <Text
+                style={[
+                  styles.tabText,
+                  tab === 'task' && styles.tabTextActive,
+                  isTinyH && { fontSize: 12 },
+                ]}
+              >
+                Daily task
+              </Text>
             </Pressable>
           </View>
 
@@ -440,60 +498,90 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                 </View>
               ) : (
                 <View style={{ flex: 1 }}>
-                  <View style={styles.tipResultRow}>
-                    <View style={styles.tipMiniLeft}>
-                      <View style={styles.tipMiniGlyph}>
+                  <View style={[styles.tipResultRow, isSmallH && { marginBottom: 8 }]}>
+                    <View style={[styles.tipMiniLeft, isSmallH && { width: 88, padding: 9, marginRight: 8 }]}>
+                      <View style={[styles.tipMiniGlyph, isSmallH && { width: 48, height: 48, borderRadius: 13 }]}>
                         <Image source={activeCategory!.glyphImage} style={styles.glyphMiniImg} resizeMode="contain" />
                       </View>
-                      <Text style={styles.tipMiniTag} numberOfLines={1}>
+                      <Text style={[styles.tipMiniTag, isSmallH && { fontSize: 11 }]} numberOfLines={1}>
                         {activeCategory!.title}
                       </Text>
                     </View>
 
-                    <View style={styles.tipTextCard}>
-                      <Text style={styles.tipTextTitle}>Daily tip</Text>
-                      <Text style={[styles.tipTextBody, isTinyH && { fontSize: 13 }]} numberOfLines={6}>
+                    <View style={[styles.tipTextCard, isSmallH && { padding: 10 }]}>
+                      <Text style={[styles.tipTextTitle, isSmallH && { marginBottom: 5 }]}>Daily tip</Text>
+                      <Text
+                        style={[
+                          styles.tipTextBody,
+                          { fontSize: isTinyH ? 12.5 : isSmallH ? 13 : 14, lineHeight: isSmallH ? 17 : 18 },
+                        ]}
+                        numberOfLines={6}
+                      >
                         {tipText}
                       </Text>
                     </View>
                   </View>
 
-                  <View style={styles.tipBottomRow}>
+                  <View style={[styles.tipBottomRow, isSmallH && { marginTop: 10 }]}>
                     <Pressable
                       onPress={prevTip}
-                      style={({ pressed }) => [styles.roundBtn, pressed && { transform: [{ scale: 0.98 }] }]}
+                      style={({ pressed }) => [
+                        styles.roundBtn,
+                        isSmallH && styles.roundBtnSm,
+                        pressed && { transform: [{ scale: 0.98 }] },
+                      ]}
                     >
-                      <Image source={IC_BACK} style={styles.icon} resizeMode="contain" />
+                      <Image source={IC_BACK} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                     </Pressable>
 
                     <Pressable
                       onPress={onShareTip}
-                      style={({ pressed }) => [styles.sharePill, pressed && { transform: [{ scale: 0.99 }] }]}
+                      style={({ pressed }) => [
+                        styles.sharePill,
+                        isSmallH && styles.sharePillSm,
+                        pressed && { transform: [{ scale: 0.99 }] },
+                      ]}
                     >
-                      <Image source={IC_SHARE} style={styles.iconSmall} resizeMode="contain" />
-                      <Text style={styles.shareText}>Share</Text>
+                      <Image source={IC_SHARE} style={[styles.iconSmall, isSmallH && styles.iconSmallSm]} resizeMode="contain" />
+                      <Text style={[styles.shareText, isSmallH && { fontSize: 14, marginLeft: 7 }]}>Share</Text>
                     </Pressable>
 
                     <Pressable
                       onPress={saveOrUnsaveTip}
-                      style={({ pressed }) => [styles.roundBtn, pressed && { transform: [{ scale: 0.98 }] }]}
+                      style={({ pressed }) => [
+                        styles.roundBtn,
+                        isSmallH && styles.roundBtnSm,
+                        pressed && { transform: [{ scale: 0.98 }] },
+                      ]}
                     >
-                      <Image source={isSaved ? IC_SAVE_FILLED : IC_SAVE} style={styles.icon} resizeMode="contain" />
+                      <Image
+                        source={isSaved ? IC_SAVE_FILLED : IC_SAVE}
+                        style={[styles.icon, isSmallH && styles.iconSm]}
+                        resizeMode="contain"
+                      />
                     </Pressable>
 
                     <Pressable
                       onPress={randomizeTip}
-                      style={({ pressed }) => [styles.roundBtn, pressed && { transform: [{ scale: 0.98 }] }]}
+                      style={({ pressed }) => [
+                        styles.roundBtn,
+                        isSmallH && styles.roundBtnSm,
+                        pressed && { transform: [{ scale: 0.98 }] },
+                      ]}
                     >
-                      <Image source={IC_REFRESH} style={styles.icon} resizeMode="contain" />
+                      <Image source={IC_REFRESH} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                     </Pressable>
                   </View>
 
                   <Pressable
                     onPress={() => navigation.navigate('SavedNoData')}
-                    style={({ pressed }) => [styles.savedHint, pressed && { opacity: 0.9 }]}
+                    style={({ pressed }) => [
+                      styles.savedHint,
+                      isSmallH && { marginTop: 8, paddingVertical: 7 },
+                      pressed && { opacity: 0.9 },
+                    ]}
                   >
-                    <Text style={styles.savedHintText}>Open saved</Text>
+                    <Text style={[styles.savedHintText, isSmallH && { fontSize: 11 }]}>Open saved</Text>
                   </Pressable>
 
                   <Pressable
@@ -501,15 +589,19 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                       setTipCat(null);
                       setTipIndex(0);
                     }}
-                    style={({ pressed }) => [styles.backToGrid, pressed && { opacity: 0.9 }]}
+                    style={({ pressed }) => [
+                      styles.backToGrid,
+                      isSmallH && { marginTop: 6, paddingVertical: 7 },
+                      pressed && { opacity: 0.9 },
+                    ]}
                   >
-                    <Text style={styles.backToGridText}>Back</Text>
+                    <Text style={[styles.backToGridText, isSmallH && { fontSize: 11 }]}>Back</Text>
                   </Pressable>
                 </View>
               )
             ) : taskPhase === 'pick' ? (
               <View style={{ flex: 1 }}>
-                <View style={{ gap: isTinyH ? 10 : 12 }}>
+                <View style={{ gap: isTinyH ? 8 : isSmallH ? 10 : 12 }}>
                   {DAILY_TASKS.map((t, i) => {
                     const active = i === taskId;
                     return (
@@ -518,11 +610,19 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                         onPress={() => setTaskId(i)}
                         style={({ pressed }) => [
                           styles.taskPill,
+                          isSmallH && { minHeight: 42, paddingHorizontal: 12 },
                           active && styles.taskPillActive,
                           pressed && { transform: [{ scale: 0.99 }] },
                         ]}
                       >
-                        <Text style={[styles.taskPillText, active && styles.taskPillTextActive]} numberOfLines={2}>
+                        <Text
+                          style={[
+                            styles.taskPillText,
+                            isSmallH && { fontSize: 11.5, lineHeight: 15 },
+                            active && styles.taskPillTextActive,
+                          ]}
+                          numberOfLines={2}
+                        >
                           {t}
                         </Text>
                       </Pressable>
@@ -530,92 +630,140 @@ export default function HomeDailyTipsScreen({ navigation }: Props) {
                   })}
                 </View>
 
-                <View style={styles.taskBottomRow}>
+                <View style={[styles.taskBottomRow, isSmallH && { marginTop: 12 }]}>
                   <Pressable
                     onPress={startTask}
-                    style={({ pressed }) => [styles.chooseBtn, pressed && { transform: [{ scale: 0.99 }] }]}
+                    style={({ pressed }) => [
+                      styles.chooseBtn,
+                      isSmallH && { height: 52 },
+                      pressed && { transform: [{ scale: 0.99 }] },
+                    ]}
                   >
-                    <Text style={styles.chooseText}>Choose</Text>
+                    <Text style={[styles.chooseText, isSmallH && { fontSize: 16 }]}>Choose</Text>
                   </Pressable>
 
                   <Pressable
                     onPress={refreshTask}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_REFRESH} style={styles.icon} resizeMode="contain" />
+                    <Image source={IC_REFRESH} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
                 </View>
               </View>
             ) : taskPhase === 'running' ? (
               <View style={{ flex: 1, justifyContent: 'space-between' }}>
-                <View style={styles.taskSelectedPill}>
-                  <Text style={styles.taskSelectedText} numberOfLines={2}>
+                <View style={[styles.taskSelectedPill, isSmallH && { minHeight: 42 }]}>
+                  <Text
+                    style={[styles.taskSelectedText, isSmallH && { fontSize: 11.5, lineHeight: 15 }]}
+                    numberOfLines={2}
+                  >
                     {DAILY_TASKS[taskId]}
                   </Text>
                 </View>
 
                 <View style={styles.timerRow}>
-                  <View style={styles.timerCircle}>
+                  <View
+                    style={[
+                      styles.timerCircle,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26, marginRight: 8 },
+                    ]}
+                  >
                     <Text style={styles.timerGlyph}>⏱</Text>
                   </View>
-                  <View style={styles.timerBox}>
-                    <Text style={[styles.timerText, isTinyH && { fontSize: 26 }]}>{formatMMSS(secondsLeft)}</Text>
+                  <View style={[styles.timerBox, isSmallH && { minHeight: 52 }]}>
+                    <Text style={[styles.timerText, { fontSize: isTinyH ? 24 : isSmallH ? 26 : 28 }]}>
+                      {formatMMSS(secondsLeft)}
+                    </Text>
                   </View>
                 </View>
 
                 <View style={styles.taskControls}>
                   <Pressable
                     onPress={backToPick}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_BACK} style={styles.icon} resizeMode="contain" />
+                    <Image source={IC_BACK} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
 
                   <Pressable
                     onPress={toggleRun}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={running ? IC_PAUSE : IC_PLAY} style={styles.icon} resizeMode="contain" />
+                    <Image source={running ? IC_PAUSE : IC_PLAY} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
                 </View>
               </View>
             ) : (
               <View style={{ flex: 1, justifyContent: 'space-between' }}>
-                <View style={styles.taskSelectedPill}>
-                  <Text style={styles.taskSelectedText} numberOfLines={2}>
+                <View style={[styles.taskSelectedPill, isSmallH && { minHeight: 42 }]}>
+                  <Text
+                    style={[styles.taskSelectedText, isSmallH && { fontSize: 11.5, lineHeight: 15 }]}
+                    numberOfLines={2}
+                  >
                     {DAILY_TASKS[taskId]}
                   </Text>
                 </View>
 
                 <View style={styles.timerRow}>
-                  <View style={styles.timerCircle}>
+                  <View
+                    style={[
+                      styles.timerCircle,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26, marginRight: 8 },
+                    ]}
+                  >
                     <Text style={styles.timerGlyph}>⏱</Text>
                   </View>
-                  <View style={styles.timerBox}>
-                    <Text style={[styles.timerText, isTinyH && { fontSize: 22 }]}>Time is up.</Text>
+                  <View style={[styles.timerBox, isSmallH && { minHeight: 52 }]}>
+                    <Text style={[styles.timerText, { fontSize: isTinyH ? 20 : isSmallH ? 22 : 28 }]}>
+                      Time is up.
+                    </Text>
                   </View>
                 </View>
 
                 <View style={styles.finishRow}>
                   <Pressable
                     onPress={backToPick}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_BACK} style={styles.icon} resizeMode="contain" />
+                    <Image source={IC_BACK} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
 
                   <Pressable
                     onPress={backToPick}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_CHECK} style={styles.icon} resizeMode="contain" />
+                    <Image source={IC_CHECK} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
 
                   <Pressable
                     onPress={backToPick}
-                    style={({ pressed }) => [styles.roundBtnBig, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.roundBtnBig,
+                      isSmallH && { width: 52, height: 52, borderRadius: 26 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_X} style={styles.icon} resizeMode="contain" />
+                    <Image source={IC_X} style={[styles.icon, isSmallH && styles.iconSm]} resizeMode="contain" />
                   </Pressable>
                 </View>
               </View>
@@ -715,14 +863,12 @@ const styles = StyleSheet.create({
   guideTitle: {
     color: GOLD,
     fontWeight: '900',
-    fontSize: 14,
     marginBottom: 4,
   },
 
   guideText: {
     color: 'rgba(255,255,255,0.92)',
     fontWeight: '800',
-    fontSize: 13,
     lineHeight: 16,
   },
 
@@ -874,7 +1020,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.92)',
     fontWeight: '800',
     fontSize: 14,
-    lineHeight: 18,
   },
 
   tipBottomRow: {
@@ -893,6 +1038,13 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
 
+  roundBtnSm: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+
   roundBtnBig: {
     width: 56,
     height: 56,
@@ -903,7 +1055,9 @@ const styles = StyleSheet.create({
   },
 
   icon: { width: 22, height: 22 },
+  iconSm: { width: 20, height: 20 },
   iconSmall: { width: 18, height: 18 },
+  iconSmallSm: { width: 16, height: 16 },
 
   sharePill: {
     flex: 1,
@@ -914,6 +1068,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     marginRight: 10,
+  },
+
+  sharePillSm: {
+    height: 40,
+    marginRight: 8,
   },
 
   shareText: {

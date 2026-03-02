@@ -9,6 +9,7 @@ import {
   Image,
   Share,
   useWindowDimensions,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -66,11 +67,8 @@ export default function SavedNoDataScreen({ navigation }: Props) {
     try {
       const raw = await AsyncStorage.getItem(KEY_CHARACTER);
       const v = (raw ?? '').trim();
-      if (v === 'empress' || v === 'emperor') {
-        setSelectedCharacter(v);
-      } else {
-        setSelectedCharacter('empress');
-      }
+      if (v === 'empress' || v === 'emperor') setSelectedCharacter(v);
+      else setSelectedCharacter('empress');
     } catch {
       setSelectedCharacter('empress');
     }
@@ -128,10 +126,12 @@ export default function SavedNoDataScreen({ navigation }: Props) {
     return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
   }, []);
 
+  const androidDown = Platform.OS === 'android' ? 10 : 0;
+
   return (
     <ImageBackground source={BG} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-        <View style={[styles.stage, { marginTop: -10 }]}>
+        <View style={[styles.stage, { marginTop: -10 + androidDown }]}>
           <View style={[styles.headerCard, { width: cardW }]}>
             <View style={styles.headerLeft}>
               <View style={styles.headerThumbWrap}>

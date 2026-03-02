@@ -42,19 +42,23 @@ function Bubble({
   side,
   text,
   maxWidth,
+  compact,
 }: {
   side: 'left' | 'right';
   text: string;
   maxWidth: number;
+  compact: boolean;
 }) {
   const isLeft = side === 'left';
   return (
     <View style={[styles.bubbleRow, isLeft ? { justifyContent: 'flex-start' } : { justifyContent: 'flex-end' }]}>
-      {isLeft && <Image source={AV_LEFT} style={styles.avatar} />}
-      <View style={[styles.bubble, { maxWidth }]}>
-        <Text style={styles.bubbleText}>{text}</Text>
+      {isLeft && <Image source={AV_LEFT} style={[styles.avatar, compact && styles.avatarCompact]} />}
+      <View style={[styles.bubble, { maxWidth }, compact && styles.bubbleCompact]}>
+        <Text style={[styles.bubbleText, compact && styles.bubbleTextCompact]} numberOfLines={compact ? 2 : 0}>
+          {text}
+        </Text>
       </View>
-      {!isLeft && <Image source={AV_RIGHT} style={styles.avatar} />}
+      {!isLeft && <Image source={AV_RIGHT} style={[styles.avatar, compact && styles.avatarCompact]} />}
     </View>
   );
 }
@@ -65,34 +69,37 @@ export default function OnboardScreen({ navigation }: Props) {
   const listRef = useRef<FlatList<Slide>>(null);
 
   const isSmallH = height <= 700;
-  const isTinyH = height <= 640;
+  const isTinyH = height <= 640; 
   const isSmallW = width <= 360;
+
+  const compact = isTinyH;
 
   const cardW = Math.min(390, width - 26);
 
-  const bottomPad = isTinyH ? 10 : isSmallH ? 12 : 14;
-  const bottomAreaTop = isTinyH ? 6 : 8;
+  const btnH = compact ? 42 : isSmallH ? 48 : 54;
+  const btnRadius = compact ? 15 : 18;
+  const btnTextSize = compact ? 15 : isSmallW ? 17 : 18;
 
-  const btnH = isTinyH ? 46 : isSmallH ? 50 : 54;          // ✅ меньше кнопка
-  const btnRadius = isTinyH ? 16 : 18;
-  const btnTextSize = isTinyH ? 16 : isSmallW ? 17 : 18;
-
-  const dotMarginTop = isTinyH ? 6 : 8;
+  const dotMarginTop = compact ? 5 : 8;
 
   const cardH = clamp(
-    height - (insets.top + insets.bottom) - 120,
-    isTinyH ? 550 : isSmallH ? 600 : 650,
+    height - (insets.top + insets.bottom) - (compact ? 92 : 120),
+    compact ? 500 : isSmallH ? 580 : 640,
     780
   );
 
   const topImageH = clamp(
-    cardH * (isTinyH ? 0.50 : 0.54),   // ✅ меньше картинка на маленьких
-    isTinyH ? 270 : isSmallH ? 320 : 360,
-    460
+    cardH * (compact ? 0.24 : isSmallH ? 0.40 : 0.46),
+    compact ? 118 : isSmallH ? 235 : 310,
+    compact ? 175 : 420
   );
 
-  const bubbleMaxW = Math.min(cardW - 76, 310);
-  const bubbleGap = isTinyH ? 6 : 8; // ✅ меньше промежутки на маленьких
+  const bubbleMaxW = Math.min(cardW - 70, 300);
+  const bubbleGap = compact ? 5 : isSmallH ? 7 : 8;
+
+  const bottomPad = (compact ? 10 : 14) + 10; 
+
+  const ctaMarginTop = compact ? 6 : 12;
 
   const slides: Slide[] = useMemo(
     () => [
@@ -150,25 +157,25 @@ export default function OnboardScreen({ navigation }: Props) {
 
   const playEnter = () => {
     fade.setValue(0);
-    scale.setValue(0.987);
+    scale.setValue(0.988);
     moveY.setValue(10);
 
     Animated.parallel([
       Animated.timing(fade, {
         toValue: 1,
-        duration: 320,
+        duration: 300,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(scale, {
         toValue: 1,
-        duration: 320,
+        duration: 300,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(moveY, {
         toValue: 0,
-        duration: 320,
+        duration: 300,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -192,7 +199,15 @@ export default function OnboardScreen({ navigation }: Props) {
 
   return (
     <ImageBackground source={BG} style={styles.bg} resizeMode="cover">
-      <SafeAreaView style={[styles.safe, { paddingTop: Math.max(10, insets.top), paddingBottom: Math.max(10, insets.bottom) }]}>
+      <SafeAreaView
+        style={[
+          styles.safe,
+          {
+            paddingTop: Math.max(10, insets.top),
+            paddingBottom: Math.max(10, insets.bottom),
+          },
+        ]}
+      >
         <View style={styles.stage}>
           <FlatList
             ref={listRef}
@@ -215,22 +230,39 @@ export default function OnboardScreen({ navigation }: Props) {
                     },
                   ]}
                 >
-                  <View style={[styles.topImageBox, { height: topImageH }]}>
+                  <View
+                    style={[
+                      styles.topImageBox,
+                      {
+                        height: topImageH,
+                        paddingTop: compact ? 2 : 10,
+                        paddingBottom: compact ? 4 : 6,
+                      },
+                    ]}
+                  >
                     <Image source={item.image} style={styles.topImage} resizeMode="contain" />
                   </View>
 
-                  <View style={[styles.bubblesWrap, { gap: bubbleGap, paddingTop: isSmallH ? 8 : 10 }]}>
+                  <View
+                    style={{
+                      flex: 1,
+                      paddingHorizontal: compact ? 10 : 12,
+                      paddingTop: compact ? 6 : isSmallH ? 8 : 10,
+                      paddingBottom: compact ? 8 : 10,
+                      gap: bubbleGap,
+                    }}
+                  >
                     {item.bubbles.map((b, idx) => (
-                      <Bubble key={`${item.key}_${idx}`} side={b.side} text={b.text} maxWidth={bubbleMaxW} />
+                      <Bubble key={`${item.key}_${idx}`} side={b.side} text={b.text} maxWidth={bubbleMaxW} compact />
                     ))}
                   </View>
 
-                  <View style={[styles.bottomArea, { paddingBottom: bottomPad, paddingTop: bottomAreaTop }]}>
+                  <View style={[styles.bottomArea, { paddingBottom: bottomPad, paddingTop: compact ? 6 : 8 }]}>
                     <Pressable
                       onPress={goNext}
                       style={({ pressed }) => [
                         styles.ctaBtn,
-                        { height: btnH, borderRadius: btnRadius, marginTop: isTinyH ? 6 : 8 }, // ✅ отступ сверху + меньше
+                        { height: btnH, borderRadius: btnRadius, marginTop: ctaMarginTop },
                         pressed && { transform: [{ scale: 0.985 }] },
                       ]}
                     >
@@ -255,7 +287,7 @@ export default function OnboardScreen({ navigation }: Props) {
   );
 }
 
-const R_IMG = 30;
+const R_IMG = 28;
 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
@@ -268,6 +300,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
+    flexDirection: 'column',
   },
 
   topImageBox: {
@@ -278,7 +311,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 12,
     paddingHorizontal: 12,
   },
 
@@ -288,42 +320,51 @@ const styles = StyleSheet.create({
     borderRadius: R_IMG,
   },
 
-  bubblesWrap: {
-    flex: 1,
-    paddingHorizontal: 12,
-  },
-
   bubbleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
 
   avatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  avatarCompact: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
 
   bubble: {
     backgroundColor: '#5b0b0b',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
+  },
+  bubbleCompact: {
+    borderRadius: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
   },
 
   bubbleText: {
     color: 'rgba(255,255,255,0.92)',
-    fontSize: 12.5,
-    lineHeight: 16.5,
+    fontSize: 11.5,
+    lineHeight: 15.5,
     fontWeight: '700',
+  },
+  bubbleTextCompact: {
+    fontSize: 11,
+    lineHeight: 15,
   },
 
   bottomArea: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
 
   ctaBtn: {
@@ -350,14 +391,14 @@ const styles = StyleSheet.create({
   },
 
   dot: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.25)',
   },
 
   dotActive: {
-    width: 18,
+    width: 16,
     backgroundColor: 'rgba(255,255,255,0.85)',
   },
 });

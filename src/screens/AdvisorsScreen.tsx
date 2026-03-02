@@ -1,4 +1,3 @@
-// AdvisorsScreen.tsx
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View,
@@ -12,10 +11,12 @@ import {
   Animated,
   Easing,
   Share,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useFocusEffect } from '@react-navigation/native';
 import type { MainTabParamList } from '../navigation/types';
 
@@ -36,9 +37,6 @@ const IMG_PEASANTS = require('../assets/advisor_peasants.png');
 
 const KEY_CHARACTER = 'selected_character_v1';
 
-// ✅ persist last opened page/state
-const KEY_ADVISORS_STATE = 'advisors_state_v1';
-
 type Step = 'pickAdvisor' | 'pickQuestion' | 'waiting' | 'answer';
 type AdvisorId = 'wise' | 'military' | 'peasants';
 
@@ -51,14 +49,6 @@ type Advisor = {
   answers: string[];
 };
 
-type PersistedState = {
-  step: Step;
-  advisorId: AdvisorId;
-  advisorPickedOnce: boolean;
-  question: string;
-  answer: string;
-};
-
 function pad2(n: number) {
   return n < 10 ? `0${n}` : `${n}`;
 }
@@ -67,6 +57,7 @@ const GOLD = '#f5d37a';
 
 export default function AdvisorsScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const tabBarH = useBottomTabBarHeight();
   const { width, height } = useWindowDimensions();
 
   const isSmallH = height <= 700;
@@ -77,11 +68,10 @@ export default function AdvisorsScreen({ navigation }: Props) {
   const topPad = insets.top;
   const bottomPad = insets.bottom;
 
-  const gap = isTinyH ? 8 : isSmallH ? 10 : 12;
-  const headerH = isTinyH ? 76 : isSmallH ? 86 : 94;
+  const gap = isTinyH ? 6 : isSmallH ? 8 : 12;
+  const headerH = isTinyH ? 66 : isSmallH ? 78 : 94;
 
-  // ✅ requested: move ALL content UP by 20px reliably
-  const CONTENT_SHIFT_Y = -20;
+  const CONTENT_SHIFT_Y = isTinyH ? -10 : isSmallH ? -12 : -20;
 
   const [selectedCharacter, setSelectedCharacter] = useState<'empress' | 'emperor'>('empress');
   const chosenAvatar = selectedCharacter === 'empress' ? AV_LEFT : AV_RIGHT;
@@ -167,61 +157,18 @@ export default function AdvisorsScreen({ navigation }: Props) {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
 
-  // ✅ "Choose" appears only after user taps an advisor card
   const [advisorPickedOnce, setAdvisorPickedOnce] = useState(false);
-
-  // ✅ restore last page when coming back
-  const restoringRef = useRef(false);
-
-  const restoreState = useCallback(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(KEY_ADVISORS_STATE);
-      if (!raw) return;
-      const s = JSON.parse(raw) as PersistedState;
-
-      if (!s || !s.step || !s.advisorId) return;
-
-      restoringRef.current = true;
-      setStep(s.step);
-      setAdvisorId(s.advisorId);
-      setAdvisorPickedOnce(!!s.advisorPickedOnce);
-      setQuestion(s.question || '');
-      setAnswer(s.answer || '');
-      setTimeout(() => {
-        restoringRef.current = false;
-      }, 0);
-    } catch {}
-  }, []);
-
-  const persistState = useCallback(
-    async (next?: Partial<PersistedState>) => {
-      try {
-        const payload: PersistedState = {
-          step,
-          advisorId,
-          advisorPickedOnce,
-          question,
-          answer,
-          ...(next ?? {}),
-        };
-        await AsyncStorage.setItem(KEY_ADVISORS_STATE, JSON.stringify(payload));
-      } catch {}
-    },
-    [step, advisorId, advisorPickedOnce, question, answer]
-  );
 
   useFocusEffect(
     useCallback(() => {
-      restoreState();
-      return () => {};
-    }, [restoreState])
+      setStep('pickAdvisor');
+      setAdvisorId('wise');
+      setAdvisorPickedOnce(false);
+      setQuestion('');
+      setAnswer('');
+      return undefined;
+    }, [])
   );
-
-  // Persist on any changes (but don’t fight restore)
-  useEffect(() => {
-    if (restoringRef.current) return;
-    persistState();
-  }, [step, advisorId, advisorPickedOnce, question, answer, persistState]);
 
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -235,29 +182,26 @@ export default function AdvisorsScreen({ navigation }: Props) {
   }, [step, advisorId, anim]);
 
   const fade = anim;
-  const y = anim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
-  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.992, 1] });
+  const y = anim.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
+  const scale = anim.interpolate({ inputRange: [0, 1], outputRange: [0.993, 1] });
 
   const headerTitle = 'Welcome to Golden\nDragon Imperial Way';
 
   const pickAdvisor = (id: AdvisorId) => {
     setAdvisorId(id);
     setAdvisorPickedOnce(true);
-    persistState({ advisorId: id, advisorPickedOnce: true });
   };
 
   const onChooseAdvisor = () => {
     setQuestion('');
     setAnswer('');
     setStep('pickQuestion');
-    persistState({ step: 'pickQuestion', question: '', answer: '' });
   };
 
   const onPickQuestion = (q: string) => {
     setQuestion(q);
     setAnswer('');
     setStep('waiting');
-    persistState({ step: 'waiting', question: q, answer: '' });
 
     const idx = Math.floor(Math.random() * advisor.answers.length);
     const a = advisor.answers[idx];
@@ -265,7 +209,6 @@ export default function AdvisorsScreen({ navigation }: Props) {
     setTimeout(() => {
       setAnswer(a);
       setStep('answer');
-      persistState({ step: 'answer', answer: a });
     }, 900);
   };
 
@@ -273,7 +216,6 @@ export default function AdvisorsScreen({ navigation }: Props) {
     setQuestion('');
     setAnswer('');
     setStep('pickQuestion');
-    persistState({ step: 'pickQuestion', question: '', answer: '' });
   };
 
   const onShare = async () => {
@@ -283,37 +225,41 @@ export default function AdvisorsScreen({ navigation }: Props) {
     } catch {}
   };
 
-  // ✅ adaptive sizes + button placement
-  const chooseBtnH = isTinyH ? 50 : isSmallH ? 54 : 56;
+  const chooseBtnH = isTinyH ? 48 : isSmallH ? 52 : 56;
 
-  // ✅ requested: Choice button UP by 20px (relative to previous)
-  const chooseBtnTop = (isTinyH ? 8 : 10) - 20; // lift button
+  const headerThumbSize = isTinyH ? 48 : isSmallH ? 52 : 58;
 
-  const advisorCardImg = isTinyH ? 70 : 78;
-  const advisorCardPad = isTinyH ? 10 : 12;
+  const guideAvatarSize = isTinyH ? 56 : isSmallH ? 60 : 70;
+
+  const advisorCardImg = isTinyH ? 58 : isSmallH ? 64 : 78;
+  const advisorCardPad = isTinyH ? 9 : isSmallH ? 10 : 12;
+
+  const advisorTitleSize = isTinyH ? 16.5 : isSmallH ? 17 : 18;
+  const advisorSubSize = isTinyH ? 11.5 : isSmallH ? 12 : 13;
+
+  const headerFont = isTinyH ? 14 : 16;
+  const dateFont = isTinyH ? 10.5 : 12;
+
+  const bottomScrollPad = Math.max(0, tabBarH - bottomPad) + (isTinyH ? 10 : 12);
+
+  const androidDown = Platform.OS === 'android' ? 20 : 0;
 
   return (
     <ImageBackground source={BG} style={styles.bg} resizeMode="cover">
-      <SafeAreaView
-        style={{
-          flex: 1,
-          paddingTop: topPad,
-          paddingBottom: bottomPad,
-        }}
-      >
-        {/* ✅ shift everything up by 20px */}
-        <View style={[styles.stage, { transform: [{ translateY: CONTENT_SHIFT_Y }] }]}>
+      <SafeAreaView style={{ flex: 1, paddingTop: topPad, paddingBottom: bottomPad }}>
+        <View style={[styles.stage, { transform: [{ translateY: CONTENT_SHIFT_Y + androidDown }] }]}>
           <View style={[styles.headerCard, { width: cardW, height: headerH, marginBottom: gap }]}>
             <View style={styles.headerLeft}>
-              <View style={[styles.headerThumbWrap, isTinyH && { width: 52, height: 52 }]}>
+              <View style={[styles.headerThumbWrap, { width: headerThumbSize, height: headerThumbSize }]}>
                 <Image source={HEADER_IMG} style={styles.headerThumb} resizeMode="cover" />
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={[styles.headerTitle, { fontSize: isTinyH ? 15 : 16 }]}>{headerTitle}</Text>
-                <Text style={[styles.headerDate, { fontSize: isTinyH ? 11 : 12 }]}>{dateStr}</Text>
+                <Text style={[styles.headerTitle, { fontSize: headerFont }]}>{headerTitle}</Text>
+                <Text style={[styles.headerDate, { fontSize: dateFont }]}>{dateStr}</Text>
               </View>
             </View>
+
             <View style={styles.headerDot} />
           </View>
 
@@ -328,117 +274,136 @@ export default function AdvisorsScreen({ navigation }: Props) {
             ]}
           >
             {step === 'pickAdvisor' ? (
-              <View style={{ flex: 1 }}>
-                <View style={[styles.guideCard, { marginBottom: gap }]}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingBottom: bottomScrollPad,
+                }}
+              >
+                <View style={[styles.guideCard, { marginBottom: gap, paddingVertical: isTinyH ? 10 : 12 }]}>
                   <View style={styles.guideRow}>
-                    <View style={[styles.guideAvatarWrap, isTinyH && { width: 62, height: 62 }]}>
-                      {/* ✅ never crop avatar */}
+                    <View style={[styles.guideAvatarWrap, { width: guideAvatarSize, height: guideAvatarSize }]}>
                       <Image source={chosenAvatar} style={styles.guideAvatar} resizeMode="contain" />
                     </View>
-                    <Text style={[styles.guideText, isTinyH && { fontSize: 13 }]} numberOfLines={2}>
+
+                    <Text style={[styles.guideText, { fontSize: isTinyH ? 12.5 : 14 }]} numberOfLines={2}>
                       Choose your advisors
                     </Text>
                   </View>
                 </View>
 
-                <ScrollView
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: isTinyH ? 6 : 10 }}
-                >
-                  {ADVISORS.map((a) => {
-                    const active = a.id === advisorId;
-                    return (
-                      <Pressable
-                        key={a.id}
-                        onPress={() => pickAdvisor(a.id)}
-                        style={({ pressed }) => [
-                          styles.advisorCard,
-                          { padding: advisorCardPad },
-                          active && styles.advisorCardActive,
-                          pressed && { transform: [{ scale: 0.99 }] },
-                        ]}
-                      >
-                        <View style={[styles.advisorLeftImgWrap, { width: advisorCardImg, height: advisorCardImg }]}>
-                          <Image source={a.image} style={styles.advisorLeftImg} resizeMode="cover" />
-                        </View>
+                {ADVISORS.map((a) => {
+                  const active = a.id === advisorId;
+                  return (
+                    <Pressable
+                      key={a.id}
+                      onPress={() => pickAdvisor(a.id)}
+                      style={({ pressed }) => [
+                        styles.advisorCard,
+                        { padding: advisorCardPad, marginBottom: isTinyH ? 10 : 12 },
+                        active && styles.advisorCardActive,
+                        pressed && { transform: [{ scale: 0.99 }] },
+                      ]}
+                    >
+                      <View style={[styles.advisorLeftImgWrap, { width: advisorCardImg, height: advisorCardImg }]}>
+                        <Image source={a.image} style={styles.advisorLeftImg} resizeMode="cover" />
+                      </View>
 
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.advisorTitle, isTinyH && { fontSize: 17 }]} numberOfLines={1}>
-                            {a.title}
-                          </Text>
-                          <Text style={[styles.advisorSub, isTinyH && { fontSize: 12 }]} numberOfLines={3}>
-                            {a.subtitle}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.advisorTitle, { fontSize: advisorTitleSize }]} numberOfLines={1}>
+                          {a.title}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.advisorSub,
+                            { fontSize: advisorSubSize, lineHeight: isTinyH ? 15.5 : 18 },
+                          ]}
+                          numberOfLines={3}
+                        >
+                          {a.subtitle}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
 
-                {/* ✅ show only after pick + lifted 20px */}
                 {advisorPickedOnce && (
                   <Pressable
                     onPress={onChooseAdvisor}
                     style={({ pressed }) => [
                       styles.chooseBig,
-                      { height: chooseBtnH, marginTop: chooseBtnTop },
+                      { height: chooseBtnH, marginTop: isTinyH ? 6 : 10, marginBottom: isTinyH ? 8 : 12 },
                       pressed && { transform: [{ scale: 0.99 }] },
                     ]}
                   >
                     <Text style={[styles.chooseBigText, isTinyH && { fontSize: 17 }]}>Choose</Text>
                   </Pressable>
                 )}
-              </View>
+              </ScrollView>
             ) : (
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: gap }}>
                   <Pressable
                     onPress={() => {
                       setStep('pickAdvisor');
-                      persistState({ step: 'pickAdvisor' });
+                      setAdvisorPickedOnce(true);
+                      setQuestion('');
+                      setAnswer('');
                     }}
-                    style={({ pressed }) => [styles.backBtn, pressed && { transform: [{ scale: 0.98 }] }]}
+                    style={({ pressed }) => [
+                      styles.backBtn,
+                      isTinyH && { width: 50, height: 50, borderRadius: 16 },
+                      pressed && { transform: [{ scale: 0.98 }] },
+                    ]}
                   >
-                    <Image source={IC_BACK} style={styles.backIcon} resizeMode="contain" />
+                    <Image
+                      source={IC_BACK}
+                      style={[styles.backIcon, isTinyH && { width: 20, height: 20 }]}
+                      resizeMode="contain"
+                    />
                   </Pressable>
 
-                  <View style={[styles.selectedAdvisorCard, { flex: 1 }]}>
-                    <View style={styles.selectedAdvisorImgWrap}>
+                  <View style={[styles.selectedAdvisorCard, { flex: 1, padding: isTinyH ? 9 : 10 }]}>
+                    <View style={[styles.selectedAdvisorImgWrap, isTinyH && { width: 48, height: 48 }]}>
                       <Image source={advisor.image} style={styles.selectedAdvisorImg} resizeMode="cover" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.selectedAdvisorTitle} numberOfLines={1}>
+                      <Text style={[styles.selectedAdvisorTitle, isTinyH && { fontSize: 13 }]} numberOfLines={1}>
                         {advisor.title}
                       </Text>
-                      <Text style={styles.selectedAdvisorSub} numberOfLines={2}>
+                      <Text style={[styles.selectedAdvisorSub, isTinyH && { fontSize: 11 }]} numberOfLines={2}>
                         {advisor.subtitle}
                       </Text>
                     </View>
                   </View>
                 </View>
 
-                <View style={[styles.promptCard, { marginBottom: gap }]}>
+                <View style={[styles.promptCard, { marginBottom: gap, paddingVertical: isTinyH ? 10 : 12 }]}>
                   <Text style={[styles.promptText, isTinyH && { fontSize: 12 }]} numberOfLines={1}>
                     What are you interested in today?
                   </Text>
 
-                  <View style={styles.promptRightImgWrap}>
+                  <View style={[styles.promptRightImgWrap, isTinyH && { width: 40, height: 40 }]}>
                     <Image source={advisor.image} style={styles.promptRightImg} resizeMode="cover" />
                   </View>
                 </View>
 
                 {step === 'pickQuestion' ? (
-                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: gap }}>
+                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: bottomScrollPad }}>
                     {advisor.questions.map((q) => (
                       <Pressable
                         key={q}
                         onPress={() => onPickQuestion(q)}
-                        style={({ pressed }) => [styles.questionPill, pressed && { transform: [{ scale: 0.99 }] }]}
+                        style={({ pressed }) => [
+                          styles.questionPill,
+                          isTinyH && { minHeight: 50, marginBottom: 10 },
+                          pressed && { transform: [{ scale: 0.99 }] },
+                        ]}
                       >
-                        <View style={styles.qAvatarWrap}>
+                        <View style={[styles.qAvatarWrap, isTinyH && { width: 40, height: 40, borderRadius: 14 }]}>
                           <Image source={chosenAvatar} style={styles.qAvatarImg} resizeMode="contain" />
                         </View>
-                        <Text style={[styles.questionText, isTinyH && { fontSize: 12 }]} numberOfLines={2}>
+                        <Text style={[styles.questionText, isTinyH && { fontSize: 12, lineHeight: 17 }]} numberOfLines={2}>
                           {q}
                         </Text>
                       </Pressable>
@@ -446,25 +411,25 @@ export default function AdvisorsScreen({ navigation }: Props) {
                   </ScrollView>
                 ) : step === 'waiting' ? (
                   <View style={{ flex: 1, justifyContent: 'center' }}>
-                    <View style={[styles.waitCard, isTinyH && { height: 78 }]}>
+                    <View style={[styles.waitCard, isTinyH && { height: 76 }]}>
                       <Text style={[styles.waitText, isTinyH && { fontSize: 16 }]}>Wait for the answer...</Text>
                     </View>
                   </View>
                 ) : (
-                  <View style={{ flex: 1 }}>
-                    <View style={[styles.bubble, { marginBottom: 10 }]}>
+                  <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: bottomScrollPad }}>
+                    <View style={[styles.bubble, { marginBottom: isTinyH ? 8 : 10 }]}>
                       <View style={styles.bubbleLeft}>
                         <View style={styles.qAvatarWrapSmall}>
                           <Image source={chosenAvatar} style={styles.qAvatarImgSmall} resizeMode="contain" />
                         </View>
                       </View>
-                      <Text style={[styles.bubbleText, isTinyH && { fontSize: 12 }]} numberOfLines={3}>
+                      <Text style={[styles.bubbleText, isTinyH && { fontSize: 12, lineHeight: 17 }]} numberOfLines={3}>
                         {question}
                       </Text>
                     </View>
 
-                    <View style={[styles.bubble, { marginBottom: 16, alignSelf: 'flex-end' }]}>
-                      <Text style={[styles.bubbleText, isTinyH && { fontSize: 12 }]} numberOfLines={4}>
+                    <View style={[styles.bubble, { marginBottom: isTinyH ? 12 : 16, alignSelf: 'flex-end' }]}>
+                      <Text style={[styles.bubbleText, isTinyH && { fontSize: 12, lineHeight: 17 }]} numberOfLines={4}>
                         {answer}
                       </Text>
                       <View style={styles.bubbleRight}>
@@ -496,7 +461,7 @@ export default function AdvisorsScreen({ navigation }: Props) {
                     >
                       <Text style={[styles.goldBtnText, isTinyH && { fontSize: 17 }]}>Try again</Text>
                     </Pressable>
-                  </View>
+                  </ScrollView>
                 )}
               </View>
             )}
@@ -658,7 +623,13 @@ const styles = StyleSheet.create({
   },
   selectedAdvisorImg: { width: '100%', height: '100%' },
   selectedAdvisorTitle: { color: GOLD, fontWeight: '900', fontSize: 14 },
-  selectedAdvisorSub: { marginTop: 2, color: 'rgba(255,255,255,0.78)', fontWeight: '700', fontSize: 12, lineHeight: 16 },
+  selectedAdvisorSub: {
+    marginTop: 2,
+    color: 'rgba(255,255,255,0.78)',
+    fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 16,
+  },
 
   promptCard: {
     borderRadius: 18,
@@ -712,7 +683,13 @@ const styles = StyleSheet.create({
   },
   qAvatarImg: { width: '100%', height: '100%' },
 
-  questionText: { flex: 1, color: 'rgba(255,255,255,0.90)', fontWeight: '800', fontSize: 13, lineHeight: 18 },
+  questionText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.90)',
+    fontWeight: '800',
+    fontSize: 13,
+    lineHeight: 18,
+  },
 
   waitCard: {
     height: 86,
@@ -737,7 +714,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  bubbleText: { flex: 1, color: 'rgba(255,255,255,0.88)', fontWeight: '800', fontSize: 13, lineHeight: 18 },
+  bubbleText: {
+    flex: 1,
+    color: 'rgba(255,255,255,0.88)',
+    fontWeight: '800',
+    fontSize: 13,
+    lineHeight: 18,
+  },
 
   bubbleLeft: { justifyContent: 'center' },
   qAvatarWrapSmall: {
